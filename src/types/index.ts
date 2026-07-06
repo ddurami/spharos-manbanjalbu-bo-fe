@@ -1,4 +1,1 @@
-export type ApiResponse<T> = {
-  data: T;
-  message?: string;
-};
+export type { ApiResponse, AdminLoginRequest, AdminLoginResponse, StoredAdmin } from "./auth";
