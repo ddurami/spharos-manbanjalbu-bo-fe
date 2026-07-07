@@ -21,6 +21,16 @@ export type {
   SummernoteUploadResponse,
 } from "./file-api";
 export type {
+  MemberStatus,
+  MemberGrade,
+  MemberSummaryResponse,
+  MemberListItem,
+  MemberDetailResponse,
+  MemberSearchParams,
+  MemberActionRequest,
+  MemberMemoRequest,
+} from "./member-api";
+export type {
   ProductSummaryResponse,
   ProductListItem,
   ProductDetailResponse,
