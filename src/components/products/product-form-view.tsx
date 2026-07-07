@@ -2,16 +2,16 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ImagePlus, Loader2, X } from "lucide-react";
+import { ArrowLeft, ImageIcon, Loader2, X } from "lucide-react";
 
 import { ApiError } from "@/lib/api/client";
-import { uploadThumbnail } from "@/lib/api/files";
 import {
   createProduct,
   getProductCategories,
+  getProductDetail,
   getProductPolicies,
+  updateProduct,
 } from "@/lib/api/products";
 import { cn } from "@/lib/utils";
 import {
@@ -20,8 +20,14 @@ import {
   type ProductCapacity,
   type ProductFormInput,
   type ProductSaleType,
+  type ProductStatus,
 } from "@/types/product";
-import type { CategoryResponse, ProductPolicyResponse } from "@/types/product-api";
+import type {
+  CategoryPathItem,
+  CategoryResponse,
+  ProductDetailResponse,
+  ProductPolicyResponse,
+} from "@/types/product-api";
 
 const SummernoteEditor = dynamic(
   () =>
@@ -40,7 +46,6 @@ const SummernoteEditor = dynamic(
 
 const SALE_TYPES = Object.keys(PRODUCT_SALE_TYPE_LABELS) as ProductSaleType[];
 const CAPACITIES = Object.keys(PRODUCT_CAPACITY_LABELS) as ProductCapacity[];
-const THUMBNAIL_ACCEPT = "image/jpeg,image/png,image/gif,image/webp,image/bmp";
 
 const EMPTY: ProductFormInput = {
   name: "",
@@ -79,48 +84,137 @@ function isEmptyHtml(html: string): boolean {
   return text.length === 0;
 }
 
+function isValidHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function applyCategoryPath(
+  categoryPath: CategoryPathItem[],
+): { largeId: number | ""; mediumId: number | "" } {
+  const sorted = [...categoryPath].sort((a, b) => a.depth - b.depth);
+  const large = sorted.find((item) => item.depth === 1);
+  const medium = sorted.find((item) => item.depth === 2);
+
+  if (medium) {
+    return {
+      largeId: large?.categoryId ?? "",
+      mediumId: medium.categoryId,
+    };
+  }
+
+  if (large) {
+    return { largeId: large.categoryId, mediumId: "" };
+  }
+
+  const leaf = sorted.at(-1);
+  return { largeId: leaf?.categoryId ?? "", mediumId: "" };
+}
+
+function detailToFormInput(detail: ProductDetailResponse): ProductFormInput {
+  return {
+    name: detail.name,
+    categoryId: detail.categoryId ?? "",
+    policyId: detail.policyId ?? "",
+    price: String(detail.price),
+    saleType: detail.saleType,
+    capacity: detail.capacity ?? "",
+    shortDescription: detail.shortDescription,
+    thumbnailUrl: detail.thumbnailUrl ?? "",
+    detailHtml: detail.detailHtml ?? "",
+    badges: {
+      best: detail.best,
+      isNew: detail.isNew,
+    },
+  };
+}
+
 const inputClass =
   "w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm text-neutral-800 outline-none transition-colors focus:border-starbucks-green focus:ring-2 focus:ring-starbucks-green/20";
 
-export function ProductFormView({ mode }: { mode: "create" | "edit" }) {
+export function ProductFormView({
+  mode,
+  productId,
+}: {
+  mode: "create" | "edit";
+  productId?: number;
+}) {
   const router = useRouter();
+  const isEdit = mode === "edit";
+
   const [form, setForm] = useState<ProductFormInput>(EMPTY);
+  const [productStatus, setProductStatus] = useState<ProductStatus>("ON_SALE");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [categories, setCategories] = useState<CategoryResponse[]>([]);
   const [policies, setPolicies] = useState<ProductPolicyResponse[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [loading, setLoading] = useState(isEdit);
   const [loadError, setLoadError] = useState("");
-  const [editorError, setEditorError] = useState("");
-
-  const [thumbnailPreview, setThumbnailPreview] = useState("");
-  const [thumbnailFileName, setThumbnailFileName] = useState("");
-  const [thumbnailUploading, setThumbnailUploading] = useState(false);
+  const [editorNotice, setEditorNotice] = useState("");
 
   const [largeId, setLargeId] = useState<number | "">("");
   const [mediumId, setMediumId] = useState<number | "">("");
 
   useEffect(() => {
-    Promise.all([getProductCategories(), getProductPolicies()])
-      .then(([cats, pols]) => {
+    let cancelled = false;
+
+    async function loadFormData() {
+      setLoading(true);
+      setLoadError("");
+
+      try {
+        const [cats, pols] = await Promise.all([
+          getProductCategories(),
+          getProductPolicies(),
+        ]);
+
+        if (cancelled) return;
+
         setCategories(cats);
         setPolicies(pols);
-      })
-      .catch((err) => {
+
+        if (isEdit) {
+          if (!productId || Number.isNaN(productId)) {
+            throw new ApiError("유효하지 않은 상품 ID입니다.", 400);
+          }
+
+          const detail = await getProductDetail(productId);
+          if (cancelled) return;
+
+          setForm(detailToFormInput(detail));
+          setProductStatus(detail.status);
+
+          const { largeId: nextLargeId, mediumId: nextMediumId } =
+            applyCategoryPath(detail.categoryPath);
+          setLargeId(nextLargeId);
+          setMediumId(nextMediumId);
+        }
+      } catch (err) {
+        if (cancelled) return;
         setLoadError(
           err instanceof ApiError
             ? err.message
-            : "카테고리/정책 정보를 불러오지 못했습니다.",
+            : isEdit
+              ? "상품 정보를 불러오지 못했습니다."
+              : "카테고리/정책 정보를 불러오지 못했습니다.",
         );
-      });
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (thumbnailPreview.startsWith("blob:")) {
-        URL.revokeObjectURL(thumbnailPreview);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
+    }
+
+    void loadFormData();
+
+    return () => {
+      cancelled = true;
     };
-  }, [thumbnailPreview]);
+  }, [isEdit, productId]);
 
   const largeCategories = useMemo(
     () => categories.filter((c) => c.depth === 1),
@@ -147,22 +241,6 @@ export function ProductFormView({ mode }: { mode: "create" | "edit" }) {
     }));
   }, [leafCategoryId]);
 
-  if (mode === "edit") {
-    return (
-      <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-neutral-100 bg-white p-16 text-center shadow-sm">
-        <p className="text-sm text-neutral-600">
-          상품 수정 화면은 추후 API 연동 예정입니다.
-        </p>
-        <Link
-          href="/products"
-          className="rounded-lg bg-starbucks-green px-4 py-2 text-sm font-medium text-white"
-        >
-          상품 목록으로
-        </Link>
-      </div>
-    );
-  }
-
   const update = <K extends keyof ProductFormInput>(
     key: K,
     value: ProductFormInput[K],
@@ -171,57 +249,12 @@ export function ProductFormView({ mode }: { mode: "create" | "edit" }) {
   };
 
   const clearThumbnail = () => {
-    if (thumbnailPreview.startsWith("blob:")) {
-      URL.revokeObjectURL(thumbnailPreview);
-    }
-    setThumbnailPreview("");
-    setThumbnailFileName("");
     update("thumbnailUrl", "");
     setErrors((prev) => {
       const next = { ...prev };
       delete next.thumbnailUrl;
       return next;
     });
-  };
-
-  const handleThumbnailChange = async (file: File | null) => {
-    if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-      setErrors((prev) => ({
-        ...prev,
-        thumbnailUrl: "이미지 파일만 업로드할 수 있습니다.",
-      }));
-      return;
-    }
-
-    const previewUrl = URL.createObjectURL(file);
-    if (thumbnailPreview.startsWith("blob:")) {
-      URL.revokeObjectURL(thumbnailPreview);
-    }
-    setThumbnailPreview(previewUrl);
-    setThumbnailFileName(file.name);
-    setThumbnailUploading(true);
-    setLoadError("");
-
-    try {
-      const uploaded = await uploadThumbnail(file);
-      update("thumbnailUrl", uploaded.url);
-      setErrors((prev) => {
-        const next = { ...prev };
-        delete next.thumbnailUrl;
-        return next;
-      });
-    } catch (err) {
-      clearThumbnail();
-      setLoadError(
-        err instanceof ApiError
-          ? err.message
-          : "썸네일 업로드 중 오류가 발생했습니다.",
-      );
-    } finally {
-      setThumbnailUploading(false);
-    }
   };
 
   const validate = (): boolean => {
@@ -232,8 +265,14 @@ export function ProductFormView({ mode }: { mode: "create" | "edit" }) {
       next.price = "가격을 올바르게 입력하세요.";
     if (!form.shortDescription.trim())
       next.shortDescription = "간단 설명을 입력하세요.";
-    if (!form.thumbnailUrl.trim())
-      next.thumbnailUrl = "썸네일 이미지를 업로드하세요.";
+
+    const thumbnail = form.thumbnailUrl.trim();
+    if (!thumbnail) {
+      next.thumbnailUrl = "썸네일 이미지 URL을 입력하세요.";
+    } else if (!isValidHttpUrl(thumbnail)) {
+      next.thumbnailUrl = "http:// 또는 https:// 로 시작하는 URL을 입력하세요.";
+    }
+
     if (isEmptyHtml(form.detailHtml))
       next.detailHtml = "상품 상세 정보를 입력하세요.";
 
@@ -241,11 +280,21 @@ export function ProductFormView({ mode }: { mode: "create" | "edit" }) {
     return Object.keys(next).length === 0;
   };
 
+  const buildPayload = (resolvedPolicyId: number) => ({
+    categoryId: Number(form.categoryId),
+    policyId: resolvedPolicyId,
+    name: form.name.trim(),
+    shortDescription: form.shortDescription.trim(),
+    price: Number(form.price),
+    saleType: form.saleType,
+    thumbnailUrl: form.thumbnailUrl.trim(),
+    best: form.badges.best,
+    isNew: form.badges.isNew,
+    detailHtml: form.detailHtml.trim(),
+    capacity: form.capacity === "" ? undefined : form.capacity,
+  });
+
   const handleSubmit = async () => {
-    if (thumbnailUploading) {
-      setLoadError("썸네일 업로드가 완료될 때까지 기다려주세요.");
-      return;
-    }
     if (!validate()) return;
 
     const resolvedPolicyId =
@@ -257,31 +306,47 @@ export function ProductFormView({ mode }: { mode: "create" | "edit" }) {
 
     setSubmitting(true);
     setLoadError("");
+
     try {
-      const created = await createProduct({
-        categoryId: Number(form.categoryId),
-        policyId: resolvedPolicyId,
-        name: form.name.trim(),
-        shortDescription: form.shortDescription.trim(),
-        price: Number(form.price),
-        saleType: form.saleType,
-        thumbnailUrl: form.thumbnailUrl.trim(),
-        best: form.badges.best,
-        isNew: form.badges.isNew,
-        detailHtml: form.detailHtml.trim(),
-        capacity: form.capacity === "" ? undefined : form.capacity,
-      });
+      if (isEdit) {
+        if (!productId) {
+          throw new ApiError("유효하지 않은 상품 ID입니다.", 400);
+        }
+
+        await updateProduct(productId, {
+          ...buildPayload(resolvedPolicyId),
+          status: productStatus,
+        });
+        router.push(`/products/${productId}`);
+        return;
+      }
+
+      const created = await createProduct(buildPayload(resolvedPolicyId));
       router.push(`/products/${created.productId}`);
     } catch (err) {
       setLoadError(
         err instanceof ApiError
           ? err.message
-          : "상품 등록 중 오류가 발생했습니다.",
+          : isEdit
+            ? "상품 수정 중 오류가 발생했습니다."
+            : "상품 등록 중 오류가 발생했습니다.",
       );
     } finally {
       setSubmitting(false);
     }
   };
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[320px] items-center justify-center rounded-xl border border-neutral-100 bg-white p-16 shadow-sm">
+        <Loader2 className="size-8 animate-spin text-starbucks-green" />
+      </div>
+    );
+  }
+
+  const thumbnailPreviewUrl = form.thumbnailUrl.trim();
+  const showThumbnailPreview =
+    thumbnailPreviewUrl.length > 0 && isValidHttpUrl(thumbnailPreviewUrl);
 
   return (
     <div className="space-y-6">
@@ -294,82 +359,73 @@ export function ProductFormView({ mode }: { mode: "create" | "edit" }) {
           <ArrowLeft className="size-4" />
         </button>
         <div>
-          <h1 className="text-xl font-bold text-neutral-900">상품 등록</h1>
+          <h1 className="text-xl font-bold text-neutral-900">
+            {isEdit ? "상품 수정" : "상품 등록"}
+          </h1>
           <p className="mt-1 text-sm text-neutral-500">
             썸네일·상품명·카테고리·가격·간단 설명·상세 정보는 필수입니다.
           </p>
         </div>
       </div>
 
-      {(loadError || editorError) && (
-        <div className="rounded-lg border border-rose-100 bg-rose-50 px-4 py-2 text-sm text-rose-600">
-          {loadError || editorError}
+      {(loadError || editorNotice) && (
+        <div
+          className={cn(
+            "rounded-lg border px-4 py-2 text-sm",
+            loadError
+              ? "border-rose-100 bg-rose-50 text-rose-600"
+              : "border-amber-100 bg-amber-50 text-amber-700",
+          )}
+        >
+          {loadError || editorNotice}
         </div>
       )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-1">
           <div className="rounded-xl border border-neutral-100 bg-white p-5 shadow-sm">
-            <FieldLabel required>썸네일 이미지</FieldLabel>
-            <label
-              className={cn(
-                "relative flex aspect-square w-full cursor-pointer flex-col items-center justify-center gap-2 overflow-hidden rounded-lg border-2 border-dashed border-neutral-200 text-center transition-colors hover:border-starbucks-green/40 hover:bg-starbucks-green/5",
-                thumbnailUploading && "pointer-events-none opacity-60",
-              )}
-            >
-              {thumbnailPreview ? (
+            <FieldLabel required>썸네일 이미지 URL</FieldLabel>
+            <input
+              type="url"
+              value={form.thumbnailUrl}
+              onChange={(e) => update("thumbnailUrl", e.target.value)}
+              placeholder="https://example.com/images/thumbnail.jpg"
+              className={inputClass}
+            />
+            <p className="mt-2 text-xs text-neutral-400">
+              외부 이미지 URL을 입력하세요. (http/https)
+            </p>
+
+            <div className="relative mt-4 flex aspect-square w-full items-center justify-center overflow-hidden rounded-lg border border-neutral-200 bg-neutral-50">
+              {showThumbnailPreview ? (
                 <>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={thumbnailPreview}
+                    src={thumbnailPreviewUrl}
                     alt="썸네일 미리보기"
                     className="absolute inset-0 size-full object-cover"
+                    onError={(e) => {
+                      e.currentTarget.style.display = "none";
+                    }}
                   />
-                  <div className="absolute inset-0 bg-black/0 transition-colors hover:bg-black/20" />
                 </>
-              ) : thumbnailUploading ? (
-                <Loader2 className="size-8 animate-spin text-starbucks-green" />
               ) : (
-                <ImagePlus className="size-8 text-neutral-400" />
+                <div className="flex flex-col items-center gap-2 text-neutral-400">
+                  <ImageIcon className="size-8" />
+                  <span className="text-xs">미리보기</span>
+                </div>
               )}
-              {!thumbnailPreview && (
-                <>
-                  <span className="text-sm font-medium text-neutral-700">
-                    {thumbnailUploading ? "업로드 중..." : "클릭하여 이미지 선택"}
-                  </span>
-                  <span className="px-4 text-xs text-neutral-400">
-                    JPG, PNG, GIF, WEBP (최대 10MB)
-                  </span>
-                </>
-              )}
-              <input
-                type="file"
-                accept={THUMBNAIL_ACCEPT}
-                className="hidden"
-                disabled={thumbnailUploading}
-                onChange={(e) => {
-                  const file = e.target.files?.[0] ?? null;
-                  void handleThumbnailChange(file);
-                  e.target.value = "";
-                }}
-              />
-            </label>
+            </div>
 
-            {thumbnailPreview && !thumbnailUploading && (
+            {form.thumbnailUrl.trim() && (
               <button
                 type="button"
                 onClick={clearThumbnail}
                 className="mt-2 inline-flex items-center gap-1 text-xs text-neutral-500 hover:text-rose-500"
               >
                 <X className="size-3.5" />
-                썸네일 제거
+                URL 초기화
               </button>
-            )}
-            {thumbnailFileName && (
-              <p className="mt-2 text-xs text-neutral-500">
-                {thumbnailFileName}
-                {form.thumbnailUrl ? " · 업로드 완료" : ""}
-              </p>
             )}
             {errors.thumbnailUrl && (
               <p className="mt-1 text-xs text-rose-500">{errors.thumbnailUrl}</p>
@@ -564,14 +620,16 @@ export function ProductFormView({ mode }: { mode: "create" | "edit" }) {
           <div className="rounded-xl border border-neutral-100 bg-white p-5 shadow-sm">
             <FieldLabel required>상품 상세 정보</FieldLabel>
             <p className="mb-3 text-xs text-neutral-500">
-              Summernote 에디터에서 텍스트·이미지·파일 첨부를 작성할 수
-              있습니다. 이미지/파일은 서버에 자동 업로드됩니다.
+              Summernote 에디터에서 텍스트를 작성하고, 이미지·링크는 URL로
+              삽입하세요. (그림/링크 버튼 사용)
             </p>
-            <SummernoteEditor
-              value={form.detailHtml}
-              onChange={(html) => update("detailHtml", html)}
-              onUploadError={setEditorError}
-            />
+            {!loading && (
+              <SummernoteEditor
+                value={form.detailHtml}
+                onChange={(html) => update("detailHtml", html)}
+                onBlockedAction={setEditorNotice}
+              />
+            )}
             {errors.detailHtml && (
               <p className="mt-1 text-xs text-rose-500">{errors.detailHtml}</p>
             )}
@@ -580,7 +638,9 @@ export function ProductFormView({ mode }: { mode: "create" | "edit" }) {
           <div className="flex justify-end gap-2">
             <button
               type="button"
-              onClick={() => router.push("/products")}
+              onClick={() =>
+                router.push(isEdit && productId ? `/products/${productId}` : "/products")
+              }
               className="rounded-lg border border-neutral-200 px-5 py-2.5 text-sm font-medium text-neutral-600 hover:bg-neutral-50"
             >
               취소
@@ -588,10 +648,16 @@ export function ProductFormView({ mode }: { mode: "create" | "edit" }) {
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={submitting || thumbnailUploading}
+              disabled={submitting}
               className="rounded-lg bg-starbucks-green px-5 py-2.5 text-sm font-medium text-white hover:bg-starbucks-green-dark disabled:opacity-60"
             >
-              {submitting ? "등록 중..." : "상품 등록"}
+              {submitting
+                ? isEdit
+                  ? "수정 중..."
+                  : "등록 중..."
+                : isEdit
+                  ? "상품 수정"
+                  : "상품 등록"}
             </button>
           </div>
         </div>

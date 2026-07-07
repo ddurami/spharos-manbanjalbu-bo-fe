@@ -95,6 +95,23 @@ export type ProductCreateRequest = {
   detailHtml?: string;
 };
 
+export type ProductUpdateRequest = {
+  categoryId: number;
+  policyId: number;
+  name: string;
+  shortDescription: string;
+  price: number;
+  saleType: ProductSaleType;
+  thumbnailUrl: string;
+  seasonId?: number;
+  capacity?: ProductCapacity;
+  status?: ProductStatus;
+  best: boolean;
+  isNew: boolean;
+  detailImageUrls?: string[];
+  detailHtml?: string;
+};
+
 export type ProductReasonRequest = {
   reason: string;
 };

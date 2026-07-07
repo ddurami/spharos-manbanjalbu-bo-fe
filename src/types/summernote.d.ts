@@ -25,11 +25,14 @@ export type SummernoteOptions = {
   lang?: string;
   tabsize?: number;
   dialogsInBody?: boolean;
+  disableDragAndDrop?: boolean;
   toolbar?: unknown[][];
   buttons?: Record<string, (context: JQuery) => JQuery>;
   callbacks?: {
     onChange?: (contents: string) => void;
     onImageUpload?: (files: File[]) => void;
+    onDrop?: (event: JQuery.DropEvent) => void;
+    onPaste?: (event: JQuery.TriggeredEvent) => void;
   };
 };
 

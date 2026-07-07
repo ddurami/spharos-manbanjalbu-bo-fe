@@ -2,11 +2,6 @@
 
 import { useEffect, useRef } from "react";
 
-import { ApiError } from "@/lib/api/client";
-import {
-  uploadSummernoteFile,
-  uploadSummernoteImage,
-} from "@/lib/api/files";
 import type { SummernoteOptions } from "@/types/summernote";
 
 type SummernoteEditorProps = {
@@ -14,7 +9,7 @@ type SummernoteEditorProps = {
   onChange: (html: string) => void;
   placeholder?: string;
   minHeight?: number;
-  onUploadError?: (message: string) => void;
+  onBlockedAction?: (message: string) => void;
 };
 
 function isSummernoteInitialized($editor: JQuery<HTMLElement>) {
@@ -25,7 +20,6 @@ function cleanupSummernoteArtifacts($: JQueryStatic, $editor: JQuery<HTMLElement
   if (isSummernoteInitialized($editor)) {
     $editor.summernote("destroy");
   }
-  // React 재마운트 후 남은 팝오버/모달이 offset().top 계산 시 터지는 것 방지
   $(".note-popover, .note-modal, .note-tooltip").remove();
 }
 
@@ -34,11 +28,11 @@ export function SummernoteEditor({
   onChange,
   placeholder = "상품 상세 정보를 입력하세요.",
   minHeight = 320,
-  onUploadError,
+  onBlockedAction,
 }: SummernoteEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const onChangeRef = useRef(onChange);
-  const onUploadErrorRef = useRef(onUploadError);
+  const onBlockedActionRef = useRef(onBlockedAction);
   const destroyRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -46,8 +40,8 @@ export function SummernoteEditor({
   }, [onChange]);
 
   useEffect(() => {
-    onUploadErrorRef.current = onUploadError;
-  }, [onUploadError]);
+    onBlockedActionRef.current = onBlockedAction;
+  }, [onBlockedAction]);
 
   useEffect(() => {
     let cancelled = false;
@@ -60,13 +54,11 @@ export function SummernoteEditor({
       window.jQuery = $;
       window.$ = $;
 
-      // jQuery 4+ 호환: Summernote 내부에서 $.now() 사용
       if (typeof $.now !== "function") {
         $.now = Date.now;
       }
 
       await import("summernote/dist/summernote-lite.css");
-      // 언어팩은 summernote 본체 로드 후에 불러와야 $.summernote.lang 접근 가능
       await import("summernote/dist/summernote-lite.min.js");
       await import("summernote/dist/lang/summernote-ko-KR.min.js");
 
@@ -78,22 +70,8 @@ export function SummernoteEditor({
         cleanupSummernoteArtifacts($, $editor);
       }
 
-      const handleUploadError = (err: unknown) => {
-        const message =
-          err instanceof ApiError
-            ? err.message
-            : "파일 업로드 중 오류가 발생했습니다.";
-        onUploadErrorRef.current?.(message);
-      };
-
-      const uploadImages = (files: FileList | File[]) => {
-        Array.from(files).forEach((file) => {
-          uploadSummernoteImage(file)
-            .then(({ url }) => {
-              $editor.summernote("insertImage", url);
-            })
-            .catch(handleUploadError);
-        });
+      const notifyBlocked = (message: string) => {
+        onBlockedActionRef.current?.(message);
       };
 
       const options: SummernoteOptions = {
@@ -102,50 +80,37 @@ export function SummernoteEditor({
         lang: "ko-KR",
         tabsize: 2,
         dialogsInBody: true,
+        disableDragAndDrop: true,
         toolbar: [
           ["font", ["bold", "italic", "underline", "clear"]],
           ["para", ["ul", "ol", "paragraph"]],
-          ["insert", ["link", "picture", "attachFile"]],
+          ["insert", ["link", "picture"]],
           ["view", ["codeview"]],
         ],
-        buttons: {
-          attachFile: ($context) => {
-            const ui = $.summernote.ui;
-            return ui
-              .button({
-                contents: '<i class="note-icon-link"></i>',
-                tooltip: "파일 첨부",
-                click: () => {
-                  const input = document.createElement("input");
-                  input.type = "file";
-                  input.accept =
-                    ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.hwp,image/*";
-                  input.onchange = () => {
-                    const file = input.files?.[0];
-                    if (!file) return;
-
-                    uploadSummernoteFile(file)
-                      .then(({ url }) => {
-                        const fileName = file.name.replace(/"/g, "'");
-                        $context.summernote(
-                          "pasteHTML",
-                          `<p><a href="${url}" target="_blank" rel="noopener noreferrer">${fileName}</a></p>`,
-                        );
-                      })
-                      .catch(handleUploadError);
-                  };
-                  input.click();
-                },
-              })
-              .render();
-          },
-        },
         callbacks: {
           onChange: (contents) => {
             onChangeRef.current(contents);
           },
-          onImageUpload: (files) => {
-            uploadImages(files);
+          onDrop: (event) => {
+            event.preventDefault();
+            notifyBlocked("파일 드래그 앤 드롭은 지원하지 않습니다. 이미지 URL을 입력해주세요.");
+          },
+          onPaste: (event) => {
+            const originalEvent = event.originalEvent;
+            if (!(originalEvent instanceof ClipboardEvent)) return;
+
+            const clipboard = originalEvent.clipboardData;
+            if (!clipboard) return;
+
+            const hasImage = Array.from(clipboard.items).some((item) =>
+              item.type.startsWith("image/"),
+            );
+            if (hasImage) {
+              event.preventDefault();
+              notifyBlocked(
+                "이미지 붙여넣기는 지원하지 않습니다. '그림' 버튼에서 URL을 입력해주세요.",
+              );
+            }
           },
         },
       };
@@ -165,7 +130,6 @@ export function SummernoteEditor({
       destroyRef.current?.();
       destroyRef.current = null;
     };
-    // Summernote는 마운트 시 1회만 초기화
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [minHeight, placeholder]);
 

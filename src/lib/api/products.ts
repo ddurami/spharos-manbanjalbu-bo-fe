@@ -7,6 +7,7 @@ import type {
   ProductReasonRequest,
   ProductSearchParams,
   ProductSummaryResponse,
+  ProductUpdateRequest,
   ProductListItem,
   SpringPage,
 } from "@/types/product-api";
@@ -44,6 +45,13 @@ export function getProductDetail(productId: number) {
 export function createProduct(body: ProductCreateRequest) {
   return apiRequest<ProductDetailResponse>(BASE, {
     method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function updateProduct(productId: number, body: ProductUpdateRequest) {
+  return apiRequest<ProductDetailResponse>(`${BASE}/${productId}`, {
+    method: "PUT",
     body: JSON.stringify(body),
   });
 }
