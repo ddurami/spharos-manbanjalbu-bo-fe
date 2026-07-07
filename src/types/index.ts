@@ -5,3 +5,27 @@ export type {
   DashboardShortcutKey,
   DashboardResponse,
 } from "./dashboard";
+export type {
+  ProductStatus,
+  ProductSaleType,
+  ProductCapacity,
+  CategoryPath,
+  ProductBadges,
+  ProductActionType,
+  ProductStatusLog,
+  Product,
+  ProductFormInput,
+} from "./product";
+export type {
+  FileUploadResponse,
+  SummernoteUploadResponse,
+} from "./file-api";
+export type {
+  ProductSummaryResponse,
+  ProductListItem,
+  ProductDetailResponse,
+  ProductCreateRequest,
+  CategoryResponse,
+  ProductPolicyResponse,
+  SpringPage,
+} from "./product-api";
