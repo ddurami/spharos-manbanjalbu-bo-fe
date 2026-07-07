@@ -1,9 +1,8 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ImageIcon, Loader2, X } from "lucide-react";
+import { ArrowLeft, ImageIcon, Loader2, Plus, Trash2, X } from "lucide-react";
 
 import { ApiError } from "@/lib/api/client";
 import {
@@ -29,21 +28,6 @@ import type {
   ProductPolicyResponse,
 } from "@/types/product-api";
 
-const SummernoteEditor = dynamic(
-  () =>
-    import("@/components/products/summernote-editor").then(
-      (mod) => mod.SummernoteEditor,
-    ),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="flex h-80 items-center justify-center rounded-lg border border-neutral-200 bg-neutral-50 text-sm text-neutral-400">
-        에디터 로딩 중...
-      </div>
-    ),
-  },
-);
-
 const SALE_TYPES = Object.keys(PRODUCT_SALE_TYPE_LABELS) as ProductSaleType[];
 const CAPACITIES = Object.keys(PRODUCT_CAPACITY_LABELS) as ProductCapacity[];
 
@@ -56,7 +40,7 @@ const EMPTY: ProductFormInput = {
   capacity: "",
   shortDescription: "",
   thumbnailUrl: "",
-  detailHtml: "",
+  detailImageUrls: [""],
   badges: { best: false, isNew: false },
 };
 
@@ -73,15 +57,6 @@ function FieldLabel({
       {required && <span className="ml-0.5 text-rose-500">*</span>}
     </label>
   );
-}
-
-function isEmptyHtml(html: string): boolean {
-  const text = html
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return text.length === 0;
 }
 
 function isValidHttpUrl(value: string): boolean {
@@ -116,6 +91,11 @@ function applyCategoryPath(
 }
 
 function detailToFormInput(detail: ProductDetailResponse): ProductFormInput {
+  const detailImageUrls =
+    detail.detailImages.length > 0
+      ? detail.detailImages.map((m) => m.mediaUrl)
+      : [""];
+
   return {
     name: detail.name,
     categoryId: detail.categoryId ?? "",
@@ -125,7 +105,7 @@ function detailToFormInput(detail: ProductDetailResponse): ProductFormInput {
     capacity: detail.capacity ?? "",
     shortDescription: detail.shortDescription,
     thumbnailUrl: detail.thumbnailUrl ?? "",
-    detailHtml: detail.detailHtml ?? "",
+    detailImageUrls,
     badges: {
       best: detail.best,
       isNew: detail.isNew,
@@ -154,7 +134,6 @@ export function ProductFormView({
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(isEdit);
   const [loadError, setLoadError] = useState("");
-  const [editorNotice, setEditorNotice] = useState("");
 
   const [largeId, setLargeId] = useState<number | "">("");
   const [mediumId, setMediumId] = useState<number | "">("");
@@ -257,6 +236,31 @@ export function ProductFormView({
     });
   };
 
+  const updateDetailImageUrl = (index: number, value: string) => {
+    setForm((prev) => {
+      const next = [...prev.detailImageUrls];
+      next[index] = value;
+      return { ...prev, detailImageUrls: next };
+    });
+  };
+
+  const addDetailImageUrl = () => {
+    setForm((prev) => ({
+      ...prev,
+      detailImageUrls: [...prev.detailImageUrls, ""],
+    }));
+  };
+
+  const removeDetailImageUrl = (index: number) => {
+    setForm((prev) => {
+      const next = prev.detailImageUrls.filter((_, i) => i !== index);
+      return {
+        ...prev,
+        detailImageUrls: next.length > 0 ? next : [""],
+      };
+    });
+  };
+
   const validate = (): boolean => {
     const next: Record<string, string> = {};
     if (!form.name.trim()) next.name = "상품명을 입력하세요.";
@@ -273,8 +277,16 @@ export function ProductFormView({
       next.thumbnailUrl = "http:// 또는 https:// 로 시작하는 URL을 입력하세요.";
     }
 
-    if (isEmptyHtml(form.detailHtml))
-      next.detailHtml = "상품 상세 정보를 입력하세요.";
+    const validDetailUrls = form.detailImageUrls
+      .map((url) => url.trim())
+      .filter((url) => url.length > 0);
+
+    if (validDetailUrls.length === 0) {
+      next.detailImageUrls = "상세 이미지 URL을 1개 이상 입력하세요.";
+    } else if (validDetailUrls.some((url) => !isValidHttpUrl(url))) {
+      next.detailImageUrls =
+        "상세 이미지 URL은 http:// 또는 https:// 로 시작해야 합니다.";
+    }
 
     setErrors(next);
     return Object.keys(next).length === 0;
@@ -290,7 +302,9 @@ export function ProductFormView({
     thumbnailUrl: form.thumbnailUrl.trim(),
     best: form.badges.best,
     isNew: form.badges.isNew,
-    detailHtml: form.detailHtml.trim(),
+    detailImageUrls: form.detailImageUrls
+      .map((url) => url.trim())
+      .filter((url) => url.length > 0),
     capacity: form.capacity === "" ? undefined : form.capacity,
   });
 
@@ -363,21 +377,14 @@ export function ProductFormView({
             {isEdit ? "상품 수정" : "상품 등록"}
           </h1>
           <p className="mt-1 text-sm text-neutral-500">
-            썸네일·상품명·카테고리·가격·간단 설명·상세 정보는 필수입니다.
+            썸네일·상품명·카테고리·가격·간단 설명·상세 이미지 URL은 필수입니다.
           </p>
         </div>
       </div>
 
-      {(loadError || editorNotice) && (
-        <div
-          className={cn(
-            "rounded-lg border px-4 py-2 text-sm",
-            loadError
-              ? "border-rose-100 bg-rose-50 text-rose-600"
-              : "border-amber-100 bg-amber-50 text-amber-700",
-          )}
-        >
-          {loadError || editorNotice}
+      {loadError && (
+        <div className="rounded-lg border border-rose-100 bg-rose-50 px-4 py-2 text-sm text-rose-600">
+          {loadError}
         </div>
       )}
 
@@ -389,7 +396,7 @@ export function ProductFormView({
               type="url"
               value={form.thumbnailUrl}
               onChange={(e) => update("thumbnailUrl", e.target.value)}
-              placeholder="https://example.com/images/thumbnail.jpg"
+              placeholder="https://picsum.photos/seed/product1/400/400"
               className={inputClass}
             />
             <p className="mt-2 text-xs text-neutral-400">
@@ -618,20 +625,79 @@ export function ProductFormView({
           </div>
 
           <div className="rounded-xl border border-neutral-100 bg-white p-5 shadow-sm">
-            <FieldLabel required>상품 상세 정보</FieldLabel>
-            <p className="mb-3 text-xs text-neutral-500">
-              Summernote 에디터에서 텍스트를 작성하고, 이미지·링크는 URL로
-              삽입하세요. (그림/링크 버튼 사용)
-            </p>
-            {!loading && (
-              <SummernoteEditor
-                value={form.detailHtml}
-                onChange={(html) => update("detailHtml", html)}
-                onBlockedAction={setEditorNotice}
-              />
-            )}
-            {errors.detailHtml && (
-              <p className="mt-1 text-xs text-rose-500">{errors.detailHtml}</p>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div>
+                <FieldLabel required>상세 이미지 URL</FieldLabel>
+                <p className="text-xs text-neutral-500">
+                  FO 상품 상세 탭에 표시됩니다. 이미지 URL을 1개 이상
+                  입력하세요.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={addDetailImageUrl}
+                className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-600 hover:bg-neutral-50"
+              >
+                <Plus className="size-3.5" />
+                URL 추가
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {form.detailImageUrls.map((url, index) => {
+                const trimmed = url.trim();
+                const showPreview =
+                  trimmed.length > 0 && isValidHttpUrl(trimmed);
+
+                return (
+                  <div
+                    key={index}
+                    className="rounded-lg border border-neutral-100 bg-neutral-50/50 p-3"
+                  >
+                    <div className="flex items-start gap-2">
+                      <input
+                        type="url"
+                        value={url}
+                        onChange={(e) =>
+                          updateDetailImageUrl(index, e.target.value)
+                        }
+                        placeholder="https://picsum.photos/seed/detail1/800/600"
+                        className={cn(inputClass, "bg-white")}
+                      />
+                      {form.detailImageUrls.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeDetailImageUrl(index)}
+                          className="rounded-lg border border-neutral-200 p-2 text-neutral-400 hover:border-rose-200 hover:text-rose-500"
+                          aria-label="상세 이미지 URL 삭제"
+                        >
+                          <Trash2 className="size-4" />
+                        </button>
+                      )}
+                    </div>
+
+                    {showPreview && (
+                      <div className="relative mt-3 overflow-hidden rounded-lg border border-neutral-200 bg-white">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={trimmed}
+                          alt={`상세 이미지 ${index + 1} 미리보기`}
+                          className="max-h-48 w-full object-contain"
+                          onError={(e) => {
+                            e.currentTarget.style.display = "none";
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {errors.detailImageUrls && (
+              <p className="mt-2 text-xs text-rose-500">
+                {errors.detailImageUrls}
+              </p>
             )}
           </div>
 

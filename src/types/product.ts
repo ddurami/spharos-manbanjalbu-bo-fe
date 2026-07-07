@@ -90,6 +90,6 @@ export type ProductFormInput = {
   capacity: ProductCapacity | "";
   shortDescription: string;
   thumbnailUrl: string;
-  detailHtml: string;
+  detailImageUrls: string[];
   badges: Pick<ProductBadges, "best" | "isNew">;
 };
