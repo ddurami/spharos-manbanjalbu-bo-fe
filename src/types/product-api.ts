@@ -129,6 +129,11 @@ export type ProductPolicyResponse = {
   title: string;
 };
 
+export type SeasonResponse = {
+  seasonId: number;
+  name: string;
+};
+
 export type ProductSearchParams = {
   name?: string;
   categoryId?: number;
