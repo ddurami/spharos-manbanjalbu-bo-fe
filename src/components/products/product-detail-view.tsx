@@ -8,6 +8,7 @@ import {
   Ban,
   ImageIcon,
   PackageX,
+  Pencil,
   RefreshCw,
   Trash2,
 } from "lucide-react";
@@ -159,6 +160,13 @@ export function ProductDetailView({ productId }: { productId: number }) {
         </div>
 
         <div className="flex flex-wrap gap-2">
+          <Link
+            href={`/products/${product.id}/edit`}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-starbucks-green px-3 py-2 text-sm font-medium text-white hover:bg-starbucks-green-dark"
+          >
+            <Pencil className="size-4" />
+            상품 수정
+          </Link>
           {product.status !== "SOLD_OUT" && (
             <button type="button" onClick={() => setDialog("SOLD_OUT")} disabled={actionLoading} className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 px-3 py-2 text-sm font-medium text-amber-600 hover:bg-amber-50">
               <PackageX className="size-4" />품절 처리
