@@ -10,6 +10,7 @@ import {
   getProductCategories,
   getProductDetail,
   getProductPolicies,
+  getProductSeasons,
   updateProduct,
 } from "@/lib/api/products";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,7 @@ import type {
   CategoryResponse,
   ProductDetailResponse,
   ProductPolicyResponse,
+  SeasonResponse,
 } from "@/types/product-api";
 
 const SALE_TYPES = Object.keys(PRODUCT_SALE_TYPE_LABELS) as ProductSaleType[];
@@ -38,6 +40,7 @@ const EMPTY: ProductFormInput = {
   price: "",
   saleType: "NORMAL",
   capacity: "",
+  seasonId: "",
   shortDescription: "",
   thumbnailUrl: "",
   detailImageUrls: [""],
@@ -103,6 +106,7 @@ function detailToFormInput(detail: ProductDetailResponse): ProductFormInput {
     price: String(detail.price),
     saleType: detail.saleType,
     capacity: detail.capacity ?? "",
+    seasonId: detail.seasonId ?? "",
     shortDescription: detail.shortDescription,
     thumbnailUrl: detail.thumbnailUrl ?? "",
     detailImageUrls,
@@ -131,6 +135,7 @@ export function ProductFormView({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [categories, setCategories] = useState<CategoryResponse[]>([]);
   const [policies, setPolicies] = useState<ProductPolicyResponse[]>([]);
+  const [seasons, setSeasons] = useState<SeasonResponse[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(isEdit);
   const [loadError, setLoadError] = useState("");
@@ -146,15 +151,17 @@ export function ProductFormView({
       setLoadError("");
 
       try {
-        const [cats, pols] = await Promise.all([
+        const [cats, pols, seasonList] = await Promise.all([
           getProductCategories(),
           getProductPolicies(),
+          getProductSeasons(),
         ]);
 
         if (cancelled) return;
 
         setCategories(cats);
         setPolicies(pols);
+        setSeasons(seasonList);
 
         if (isEdit) {
           if (!productId || Number.isNaN(productId)) {
@@ -179,7 +186,7 @@ export function ProductFormView({
             ? err.message
             : isEdit
               ? "상품 정보를 불러오지 못했습니다."
-              : "카테고리/정책 정보를 불러오지 못했습니다.",
+              : "카테고리/정책/시즌 정보를 불러오지 못했습니다.",
         );
       } finally {
         if (!cancelled) {
@@ -306,6 +313,7 @@ export function ProductFormView({
       .map((url) => url.trim())
       .filter((url) => url.length > 0),
     capacity: form.capacity === "" ? undefined : form.capacity,
+    seasonId: form.seasonId === "" ? undefined : Number(form.seasonId),
   });
 
   const handleSubmit = async () => {
@@ -589,22 +597,44 @@ export function ProductFormView({
                 </div>
               </div>
 
-              <div>
-                <FieldLabel>용량 (음료 등)</FieldLabel>
-                <select
-                  value={form.capacity}
-                  onChange={(e) =>
-                    update("capacity", e.target.value as ProductCapacity | "")
-                  }
-                  className={inputClass}
-                >
-                  <option value="">해당 없음</option>
-                  {CAPACITIES.map((cap) => (
-                    <option key={cap} value={cap}>
-                      {PRODUCT_CAPACITY_LABELS[cap]}
-                    </option>
-                  ))}
-                </select>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <FieldLabel>용량 (음료 등)</FieldLabel>
+                  <select
+                    value={form.capacity}
+                    onChange={(e) =>
+                      update("capacity", e.target.value as ProductCapacity | "")
+                    }
+                    className={inputClass}
+                  >
+                    <option value="">해당 없음</option>
+                    {CAPACITIES.map((cap) => (
+                      <option key={cap} value={cap}>
+                        {PRODUCT_CAPACITY_LABELS[cap]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <FieldLabel>시즌</FieldLabel>
+                  <select
+                    value={String(form.seasonId)}
+                    onChange={(e) =>
+                      update(
+                        "seasonId",
+                        e.target.value === "" ? "" : Number(e.target.value),
+                      )
+                    }
+                    className={inputClass}
+                  >
+                    <option value="">해당 없음</option>
+                    {seasons.map((season) => (
+                      <option key={season.seasonId} value={season.seasonId}>
+                        {season.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <div>

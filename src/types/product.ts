@@ -88,6 +88,7 @@ export type ProductFormInput = {
   price: string;
   saleType: ProductSaleType;
   capacity: ProductCapacity | "";
+  seasonId: number | "";
   shortDescription: string;
   thumbnailUrl: string;
   detailImageUrls: string[];

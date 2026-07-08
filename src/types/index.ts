@@ -37,5 +37,6 @@ export type {
   ProductCreateRequest,
   CategoryResponse,
   ProductPolicyResponse,
+  SeasonResponse,
   SpringPage,
 } from "./product-api";
