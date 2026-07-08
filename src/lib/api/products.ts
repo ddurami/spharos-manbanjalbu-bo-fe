@@ -4,6 +4,7 @@ import type {
   ProductCreateRequest,
   ProductDetailResponse,
   ProductPolicyResponse,
+  SeasonResponse,
   ProductReasonRequest,
   ProductSearchParams,
   ProductSummaryResponse,
@@ -83,4 +84,8 @@ export function getProductCategories() {
 
 export function getProductPolicies() {
   return apiRequest<ProductPolicyResponse[]>(`${BASE}/policies`);
+}
+
+export function getProductSeasons() {
+  return apiRequest<SeasonResponse[]>(`${BASE}/seasons`);
 }
